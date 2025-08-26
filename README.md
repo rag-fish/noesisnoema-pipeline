@@ -11,8 +11,6 @@
 1) **Fetching GGUF LLMs via the Hugging Face CLI** – to run with llama.cpp–compatible runtimes on iOS/desktop/server.
 2) **Building a RAGpack (chunks + embeddings)** – split documents, embed them, and ship as a `.zip` your apps can load.
 
-> Legacy CoreML conversion and tokenizer archive steps were removed to avoid confusion. If you still need them, check historical branches.
-
 ---
 
 ## What you can do here
@@ -24,11 +22,11 @@
 - (Optional) Execute the same workflow on **Google Colab** using our helper notebook.
 
 ### NEW: RAGpack v1.1 Features
-- 📍 **Precise Citations**: Paragraph boundaries and character offsets for accurate text highlighting
-- 🔍 **Rich Metadata**: Embedder version, indexing timestamps, source diversity metrics  
-- 🎯 **Preview Support**: snippet extraction and context for DeepSearch UI
-- ✅ **Validation**: Built-in CLI validation with `nn-pack validate`
-- 🔄 **Backward Compatible**: Automatically handles legacy RAGpacks with warnings
+- **Precise Citations**: Paragraph boundaries, character offsets, and optional span‑level source mapping for highlighting.
+- **Rich Metadata**: Embedder version, chunker parameters, indexing timestamps, and source diversity metrics.
+- **Preview Support**: Snippet extraction with context for DeepSearch UI and API.
+- **Validation**: Built‑in CLI validation with `nn-pack validate` including schema checks.
+- **Backward Compatible**: Automatically handles v1.0 RAGpacks with clear deprecation warnings.
 
 ---
 
@@ -63,31 +61,7 @@ huggingface-cli whoami   # sanity check
 > ```
 
 ### 3) Download a GGUF model (recommended: `huggingface-cli download`)
-**Basic form**
 ```bash
-huggingface-cli download <repo_id> \
-  --include "*.gguf" \
-  --local-dir models/<your_model_dir>
-```
-
-Filter by a given quantization (example: **Q4_K_M** only):
-```bash
-huggingface-cli download <repo_id> \
-  --include "*Q4_K_M.gguf" \
-  --local-dir models/<your_model_dir>
-```
-
-**Examples**
-- **Jan v1 4B (GGUF)** – pick a repo that actually contains `.gguf` files (check the *Files* tab):
-
-  The fastest and recommended way is to log in to Hugging Face via your browser and download directly from the model page.
-
-  ![Hugging Face repo screenshot](docs/assets/huggingface_repo.png)
-
-  The Colab and CLI methods remain as alternatives for automation or remote environments.
-
-```bash
-# Example placeholder; replace with a real GGUF repo if different
 huggingface-cli download janhq/Jan-v1-4B-GGUF-Q4_K_M \
   --include "*Q4_K_M.gguf" \
   --local-dir models/jan-v1-4b
@@ -117,7 +91,7 @@ Use the notebook under `notebooks/` to turn your documents into a self‑contain
 - `embeddings.csv` — CSV embeddings (easy to load from Swift/iOS, etc.)
 - `metadata.json` — enhanced with chunking parameters
 
-**New**: The chunker now uses **token-based splitting** with configurable overlap instead of simple character-based splitting:
+The chunker now uses **token-based splitting** with configurable overlap instead of simple character-based splitting:
 - **Chunk size**: Configure in tokens (default 512) for better LLM compatibility
 - **Overlap**: Configurable token overlap (default 50) for context preservation
 - **Smart boundaries**: Attempts to break at sentence boundaries when possible
@@ -130,15 +104,15 @@ For more details, see `chunker/README.md`.
 ---
 
 ## Optional: run on Google Colab
-You can do the same on Colab. We provide a helper notebook that includes a preset model selection dropdown with options for distilgpt2, llama3-8b, mistral, gemini, and jan-v1-4b. The notebook lists available `.gguf` files interactively, allows you to choose one, and lets you download files directly to a mounted Google Drive folder if desired.
+You can do the same on Colab using the helper notebook. Choose a `repo_id` and download `.gguf` files directly to a mounted Google Drive folder or local Colab storage.
 
 **Notebook**: `gguf_downloader_colab.ipynb`  
 Usage:
-1. Upload the notebook to Colab and run the first cell to install deps.
+1. Upload the notebook to Colab and run the first cell to install dependencies.
 2. (Optional) Mount Google Drive if you want to persist models.
 3. Log in with your HF token (fine‑grained, Read; enable *Gated repos: Read* if necessary).
-4. Pick a preset from the dropdown or type an exact `repo_id`.
-5. The notebook lists `.gguf` files → choose one → **Download** directly to your mounted Drive or local Colab storage.
+4. Enter the `repo_id` of the model you want.
+5. The notebook lists `.gguf` files → choose one → **Download**.
 
 ---
 
@@ -200,3 +174,13 @@ MIT License (see `LICENSE`). Each model retains its own license; always follow t
 ## Acknowledgements
 - Hugging Face and the OSS community.
 - All contributors to NoesisNoema / RAGfish.
+
+---
+
+## [1.1] - 2025-08
+### Added
+- **Precise Citations**: Paragraph boundaries, character offsets, and optional span‑level source mapping for highlighting.
+- **Rich Metadata**: Embedder version, chunker parameters, indexing timestamps, and source diversity metrics.
+- **Preview Support**: Snippet extraction with context for DeepSearch UI and API.
+- **Validation**: Built‑in CLI validation with `nn-pack validate` including schema checks.
+- **Backward Compatible**: Automatically handles v1.0 RAGpacks with clear deprecation warnings.
