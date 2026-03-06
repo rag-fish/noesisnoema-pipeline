@@ -3,4 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="noesisnoema-pipeline" />
   </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="nn-pipeline" project-jdk-type="Python SDK" />
 </project>
