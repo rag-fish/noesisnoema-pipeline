@@ -52,29 +52,50 @@
         "preserve_sentences": {
           "type": "boolean",
           "description": "Whether sentence boundaries were preserved"
+        },
+        "config_hash": {
+          "type": "string",
+          "description": "SHA-256 hex digest of the full chunking configuration; stable reproducibility key"
         }
       }
     },
     "embedder": {
       "type": "object",
-      "required": ["name", "version", "dimensions"],
+      "required": ["embedding_model", "embedding_version", "embedding_dimension", "model_hash", "dtype"],
       "properties": {
+        "embedding_model": {
+          "type": "string",
+          "description": "HuggingFace model identifier or local path used to generate embeddings"
+        },
+        "embedding_version": {
+          "type": "string",
+          "description": "Version of the sentence-transformers library that produced the embeddings"
+        },
+        "embedding_dimension": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of dimensions in each output embedding vector"
+        },
+        "model_hash": {
+          "type": "string",
+          "description": "SHA-256 hex digest of the model configuration; stable identity check for reproducibility"
+        },
+        "dtype": {
+          "type": "string",
+          "description": "NumPy dtype of the output embedding array (e.g. float32)"
+        },
         "name": {
           "type": "string",
-          "description": "Name of the embedding model"
+          "description": "Legacy alias for embedding_model; kept for backward compatibility"
         },
         "version": {
           "type": "string",
-          "description": "Version of the embedding model"
-        },
-        "hash": {
-          "type": "string",
-          "description": "Hash of the model for verification"
+          "description": "Legacy alias for embedding_version; kept for backward compatibility"
         },
         "dimensions": {
           "type": "integer",
           "minimum": 1,
-          "description": "Dimensionality of embeddings"
+          "description": "Legacy alias for embedding_dimension; kept for backward compatibility"
         }
       }
     },

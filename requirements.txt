@@ -1,11 +1,21 @@
 # noesisnoema-pipeline
-# Deterministic RagPack Generator (no retrieval, no embedding)
+# Deterministic RAGPack Generator
 
 # Token-based chunking
 transformers>=4.20.0
 
-# Numerical utilities (if used by validation logic)
+# Deterministic embedding generation (EPIC3 Stage 2)
+sentence-transformers>=3.0.0,<4.0.0
+
+# Numerical utilities
 numpy>=1.21.0
+
+# Parquet serialisation for chunks.parquet (EPIC3 Stage 3)
+pyarrow>=14.0.0
+
+# CLI entrypoint (EPIC3 Stage 3)
+typer>=0.9.0
 
 # Testing
 pytest>=6.0.0
+
