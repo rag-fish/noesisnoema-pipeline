@@ -35,6 +35,116 @@ REQUIRED_MANIFEST_FIELDS = frozenset({
 })
 
 
+# ---------------------------------------------------------------------------
+# RAGpack v1.2 — nested, app-facing manifest (ADR-0011 §5)
+# ---------------------------------------------------------------------------
+#
+# The flat ManifestBuilder below is the internal EPIC3 (parquet) format.  The
+# NoesisNoema app consumes a *nested* manifest (pack_version + chunker/embedder/
+# indexer/files blocks) validated against schemas/manifest_v1_2.json.  That
+# nested manifest is produced here (and by writer.pack_writer.PackWriter, which
+# delegates to this builder) so there is a single source of truth for its shape.
+
+#: Default file map for a v1.2 pack written by PackWriter.
+DEFAULT_V1_2_FILES = {
+    "chunks": "chunks.json",
+    "embeddings": "embeddings.npy",
+    "citations": "citations.jsonl",
+}
+
+#: Fields the v1.2 schema requires inside the embedder block.
+REQUIRED_V1_2_EMBEDDER_FIELDS = frozenset({
+    "embedding_model",
+    "embedding_version",
+    "embedding_dimension",
+    "model_hash",
+    "dtype",
+    "pooling",
+    "l2_normalized",
+})
+
+
+def build_manifest_v1_2(
+    *,
+    pack_id: str,
+    created_at: str,
+    chunker: dict[str, Any],
+    embedder: dict[str, Any],
+    indexer: dict[str, Any] | None = None,
+    files: dict[str, Any] | None = None,
+    source_documents: list | None = None,
+) -> dict[str, Any]:
+    """
+    Build the canonical, nested RAGpack **v1.2** manifest dict.
+
+    The result conforms to ``schemas/manifest_v1_2.json`` and is the manifest
+    the NoesisNoema app validates on import.  The central identity fields live
+    in the ``embedder`` block: ``model_hash`` (GGUF file-bytes SHA-256),
+    ``pooling`` (``"mean"``), ``l2_normalized`` (``true``), and ``dtype``
+    (``"float32"``) — see ADR-0011 §3/§5.
+
+    Args:
+        pack_id:          Stable unique identifier for the pack.  Caller-supplied
+                          so the manifest is reproducible (no uuid4 here).
+        created_at:       ISO-8601 timestamp string.
+        chunker:          Chunker metadata block (e.g.
+                          ``TokenChunker.get_chunker_metadata()``).
+        embedder:         Embedder metadata block, typically
+                          ``EmbedderMetadata.to_dict()``.  MUST contain the v1.2
+                          required embedder fields.
+        indexer:          Optional indexer block (document/chunk counts, ts).
+        files:            Optional file map; defaults to DEFAULT_V1_2_FILES.
+        source_documents: Optional list of source-document dicts.
+
+    Returns:
+        Nested manifest dict with ``pack_version == "1.2"``.
+
+    Raises:
+        ValueError: if pack_id/created_at are empty, or the embedder block is
+                    missing a v1.2-required field, or pooling/l2_normalized/dtype
+                    carry non-v1.2 values.
+    """
+    if not pack_id:
+        raise ValueError("pack_id must not be empty")
+    if not created_at:
+        raise ValueError("created_at must not be empty")
+    if not isinstance(chunker, dict) or not chunker:
+        raise ValueError("chunker metadata block must be a non-empty dict")
+    if not isinstance(embedder, dict) or not embedder:
+        raise ValueError("embedder metadata block must be a non-empty dict")
+
+    missing = REQUIRED_V1_2_EMBEDDER_FIELDS - set(embedder)
+    if missing:
+        raise ValueError(
+            f"embedder block missing v1.2-required field(s): {sorted(missing)}"
+        )
+    if embedder["dtype"] != "float32":
+        raise ValueError(
+            f"v1.2 requires embedder.dtype == 'float32', got {embedder['dtype']!r}"
+        )
+    if embedder["pooling"] != "mean":
+        raise ValueError(
+            f"v1.2 requires embedder.pooling == 'mean', got {embedder['pooling']!r}"
+        )
+    if embedder["l2_normalized"] is not True:
+        raise ValueError(
+            "v1.2 requires embedder.l2_normalized == true, got "
+            f"{embedder['l2_normalized']!r}"
+        )
+
+    manifest: dict[str, Any] = {
+        "pack_version": "1.2",
+        "pack_id": pack_id,
+        "created_at": created_at,
+        "chunker": dict(chunker),
+        "embedder": dict(embedder),
+        "indexer": dict(indexer) if indexer else {},
+        "files": dict(files) if files else dict(DEFAULT_V1_2_FILES),
+        "source_documents": list(source_documents) if source_documents else [],
+    }
+    return manifest
+
+
 def _manifest_hash(manifest_body: dict) -> str:
     """
     Return a SHA-256 hex digest of the manifest body (excluding the hash

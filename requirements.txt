@@ -4,11 +4,21 @@
 # Token-based chunking
 transformers>=4.20.0
 
+# llama.cpp GGUF embedding generation (RAGpack v1.2 / ADR-0011 §5)
+# nomic-embed-text-v1.5 embedder; produces the GGUF file-hash identity the
+# NoesisNoema app validates on import.
+llama-cpp-python>=0.3.0
+
 # Deterministic embedding generation (EPIC3 Stage 2)
+# DEPRECATED: produces v1.1 manifests, not compatible with NoesisNoema v0.4+.
+# Retained until DeterministicEmbedder is removed in a follow-up cleanup PR.
 sentence-transformers>=3.0.0,<4.0.0
 
 # Numerical utilities
 numpy>=1.21.0
+
+# Schema validation (manifest v1.2 conformance tests)
+jsonschema>=4.0.0
 
 # Parquet serialisation for chunks.parquet (EPIC3 Stage 3)
 pyarrow>=14.0.0

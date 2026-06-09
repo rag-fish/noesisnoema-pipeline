@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 from dataclasses import dataclass
 from typing import List, Sequence
 
@@ -38,6 +39,27 @@ DEFAULT_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
 
 #: Output dtype for all embedding arrays produced by this module.
 EMBEDDING_DTYPE: str = "float32"
+
+
+# ---------------------------------------------------------------------------
+# Shared file-hash helper (ADR-0011 §3 identity model)
+# ---------------------------------------------------------------------------
+
+def _sha256_file(path: str) -> str:
+    """
+    Return the lowercase SHA-256 hex digest of a file's raw bytes.
+
+    This is the canonical identity for an embedder GGUF in RAGpack v1.2:
+    the manifest ``embedder.model_hash`` must equal this digest so the
+    NoesisNoema app can verify the pack was produced by the exact GGUF it
+    ships (ADR-0011 §3).  Read in 1 MiB chunks so multi-gigabyte models do
+    not have to be loaded into memory.
+    """
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 #: Batch size used during encoding.  Kept small so behaviour is identical
 #: regardless of available VRAM or RAM.
@@ -60,17 +82,35 @@ class EmbedderMetadata:
     Fields
     ------
     embedding_model     Short human-readable model name as supplied by the
-                        caller (e.g. ``"sentence-transformers/all-MiniLM-L6-v2"``).
-    embedding_version   Version string resolved from the loaded model's
-                        sentence_transformers library version, recorded so
-                        consumers can reproduce the exact library state.
+                        caller (e.g. ``"sentence-transformers/all-MiniLM-L6-v2"``
+                        or ``"nomic-embed-text-v1.5.Q5_K_M.gguf"``).
+    embedding_version   Version string recorded so consumers can reproduce the
+                        exact runtime state (sentence-transformers library
+                        version, or the llama-cpp-python version).
     embedding_dimension Number of dimensions in each output vector.
-    model_hash          SHA-256 hex digest of the sorted model configuration
-                        JSON.  Acts as a stable identity check for the loaded
-                        model without requiring the full weights to be hashed
-                        (which would be slow and environment-dependent).
+    model_hash          Stable identity check for the loaded model.
+
+                        NOTE (ADR-0011 §3): the *semantics* of this field
+                        depend on the producing embedder:
+                          * ``LlamaCppEmbedder`` — SHA-256 of the GGUF **file
+                            bytes**.  This is the identity the NoesisNoema app
+                            validates for v1.2 packs.
+                          * ``DeterministicEmbedder`` — SHA-256 of the model
+                            *configuration* JSON (a multi-file HuggingFace
+                            download has no single file to hash).  This is
+                            **NOT** compatible with v1.2 manifests intended for
+                            NoesisNoema app v0.4+.
     dtype               NumPy dtype string for the output array (always
                         ``"float32"`` in this implementation).
+
+    v1.2 embedder-block fields (RAGpack v1.2 / ADR-0011 §5)
+    -------------------------------------------------------
+    pooling             Pooling strategy applied to produce one vector per
+                        chunk.  ``"mean"`` for the llama.cpp nomic embedder.
+    l2_normalized       Whether output vectors are explicitly L2-normalized to
+                        unit length.  ``True`` for the llama.cpp v1.2 path.
+    runtime             Embedding runtime identifier, e.g. ``"llama.cpp"``.
+                        Empty for the legacy sentence-transformers path.
     """
 
     embedding_model: str
@@ -78,20 +118,37 @@ class EmbedderMetadata:
     embedding_dimension: int
     model_hash: str
     dtype: str
+    # v1.2 embedder-block fields.  Defaulted so the legacy DeterministicEmbedder
+    # (v1.1) can construct EmbedderMetadata without supplying them.
+    pooling: str = ""
+    l2_normalized: bool = False
+    runtime: str = ""
 
     def to_dict(self) -> dict:
-        """Return a plain dict suitable for JSON serialisation in the manifest."""
-        return {
+        """
+        Return a plain dict suitable for JSON serialisation in the manifest.
+
+        The dict carries both the v1.1 required keys and the v1.2 embedder
+        block (``pooling``, ``l2_normalized``, ``runtime``).  ``runtime`` is
+        only emitted when set so v1.1 embedder blocks stay byte-identical.
+        """
+        d = {
             "embedding_model": self.embedding_model,
             "embedding_version": self.embedding_version,
             "embedding_dimension": self.embedding_dimension,
             "model_hash": self.model_hash,
             "dtype": self.dtype,
+            # v1.2 embedder-block fields (required by manifest_v1_2.json)
+            "pooling": self.pooling,
+            "l2_normalized": self.l2_normalized,
             # Legacy manifest keys kept for backward compatibility with PackWriter
             "name": self.embedding_model,
             "version": self.embedding_version,
             "dimensions": self.embedding_dimension,
         }
+        if self.runtime:
+            d["runtime"] = self.runtime
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +249,15 @@ class DeterministicEmbedder:
     Loads a sentence-transformers model and embeds ChunkRecord lists
     in a fully deterministic, reproducible manner.
 
+    .. deprecated:: 0.4.0 (RAGpack v1.2 / ADR-0011 §5)
+        This embedder produces **v1.1** manifests whose ``model_hash`` is a
+        config-dict hash, not a GGUF file hash.  Packs it produces are **not
+        importable by NoesisNoema app v0.4+**, which validates the embedder
+        GGUF file fingerprint (ADR-0011 §3).  Use
+        :class:`embedder.llamacpp_embedder.LlamaCppEmbedder` for all v1.2
+        builds.  This class is retained for backward compatibility and will be
+        removed in a follow-up cleanup PR once the v1.2 transition is verified.
+
     Usage
     -----
     ::
@@ -229,6 +295,15 @@ class DeterministicEmbedder:
         """
         if not model_name or not model_name.strip():
             raise ValueError("model_name must not be empty")
+
+        warnings.warn(
+            "DeterministicEmbedder produces RAGpack v1.1 manifests "
+            "(config-hash identity) and is NOT compatible with NoesisNoema "
+            "v0.4+, which requires v1.2 packs from a GGUF embedder. Use "
+            "embedder.llamacpp_embedder.LlamaCppEmbedder for v1.2 builds.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         try:
             from sentence_transformers import SentenceTransformer

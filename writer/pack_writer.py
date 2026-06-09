@@ -1,37 +1,70 @@
 """
-Pack writer implementation for RAGpack v1.1 format.
+Pack writer implementation for RAGpack v1.1 / v1.2 (app-facing) format.
 
-This module provides the PackWriter class for generating RAGpack v1.1
-files including manifest.json and citations.jsonl.
+This module provides the PackWriter class for generating the RAGpack the
+NoesisNoema app consumes: a nested ``manifest.json`` (pack_version +
+chunker/embedder/indexer/files blocks) plus ``citations.jsonl``, ``chunks.json``
+and ``embeddings.npy``.
+
+As of RAGpack v1.2 (ADR-0011 §5) the default output is **v1.2**: the embedder
+block carries the GGUF file-hash identity, ``pooling="mean"`` and
+``l2_normalized=true``, and citations are keyed to the app's RAGpackReader spec
+(``chunk_index`` / ``char_start`` / ``char_end`` / ``page``).  The nested
+manifest body is assembled by ``ragpack.manifest_builder.build_manifest_v1_2``
+so there is one source of truth for its shape.
 """
 
 import json
 import zipfile
 import numpy as np
 from pathlib import Path
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional
 from datetime import datetime
 import uuid
 from io import BytesIO
 
+from ragpack.manifest_builder import build_manifest_v1_2
+
+
+#: Default RAGpack format version emitted by PackWriter.
+DEFAULT_PACK_VERSION: str = "1.2"
+
 
 class PackWriter:
     """
-    Writer class for generating RAGpack v1.1 format.
-    
-    Creates RAGpack files with manifest v1.1 format and citations
-    for precise preview and citation capabilities.
+    Writer class for generating the app-facing RAGpack (v1.2 by default).
+
+    Creates RAGpack files with a nested manifest and citations for precise
+    preview and citation capabilities.  Pass ``pack_version="1.1"`` to emit the
+    legacy v1.1 manifest shape (not consumable by NoesisNoema v0.4+).
+
+    Determinism: supply ``pack_id`` and ``created_at`` explicitly to get a
+    reproducible manifest.  When omitted they fall back to a random uuid4 and
+    the wall clock respectively (legacy behaviour, non-reproducible).
     """
-    
-    def __init__(self, pack_id: str = None):
+
+    def __init__(
+        self,
+        pack_id: Optional[str] = None,
+        created_at: Optional[str] = None,
+        pack_version: str = DEFAULT_PACK_VERSION,
+    ):
         """
         Initialize pack writer.
-        
+
         Args:
-            pack_id: Unique identifier for the pack (generated if None)
+            pack_id:      Unique identifier for the pack (random uuid4 if None).
+            created_at:   ISO-8601 timestamp string (wall clock if None).
+                          Supply explicitly for reproducible packs.
+            pack_version: Manifest format version, "1.2" (default) or "1.1".
         """
+        if pack_version not in ("1.1", "1.2"):
+            raise ValueError(
+                f"pack_version must be '1.1' or '1.2', got {pack_version!r}"
+            )
         self.pack_id = pack_id or str(uuid.uuid4())
-        self.created_at = datetime.now().isoformat()
+        self.created_at = created_at or datetime.now().isoformat()
+        self.pack_version = pack_version
     
     def write_pack(self, 
                    chunks_with_metadata: List[Dict[str, Any]],
@@ -159,34 +192,71 @@ class PackWriter:
         return dir_path
     
     def _generate_citations(self, chunks_with_metadata: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Generate citations data for chunks."""
+        """
+        Generate citations keyed to the app's RAGpackReader spec (PR #98).
+
+        Each line of citations.jsonl is:
+            {"chunk_index": N, "doc_id": ..., "page": ..., "char_start": ...,
+             "char_end": ..., "paragraph_boundaries": [...], "snippet": ...}
+
+        ``chunk_index`` is the row index that aligns with embeddings.npy.  The
+        chunker's offset records use ``start_char``/``end_char``/``chunk_id``;
+        those are normalized here to the app's ``char_start``/``char_end``/
+        ``chunk_index`` names — the app reader is strict about field names.
+        ``snippet`` is retained for preview (extra fields are ignored by the
+        reader).
+        """
         citations = []
-        
-        for chunk in chunks_with_metadata:
+
+        for row_index, chunk in enumerate(chunks_with_metadata):
+            text = chunk.get('text', '')
+            snippet = chunk.get('snippet')
+            if snippet is None:
+                snippet = text[:200] + '...' if len(text) > 200 else text
+
             citation = {
-                'chunk_id': chunk['chunk_id'],
-                'doc_id': chunk['doc_id'],
-                'start_char': chunk.get('start_char', 0),
-                'end_char': chunk.get('end_char', 0),
-                'snippet': chunk.get('snippet', chunk['text'][:200] + '...' if len(chunk['text']) > 200 else chunk['text']),
+                # Row index into embeddings.npy. Prefer an explicit chunk_index;
+                # fall back to the chunker's integer chunk_id, then enumeration.
+                'chunk_index': chunk.get('chunk_index',
+                                         chunk.get('chunk_id', row_index)),
+                'doc_id': chunk.get('doc_id'),
+                'page': chunk.get('page', chunk.get('page_number')),
+                'char_start': chunk.get('char_start', chunk.get('start_char', 0)),
+                'char_end': chunk.get('char_end', chunk.get('end_char', 0)),
                 'paragraph_boundaries': chunk.get('paragraph_boundaries', []),
-                'page_number': chunk.get('page_number'),
-                'line_number': chunk.get('line_number'),
-                'context_before': chunk.get('context_before', ''),
-                'context_after': chunk.get('context_after', '')
+                'snippet': snippet,
             }
             citations.append(citation)
-        
+
         return citations
-    
+
     def _generate_manifest(self,
                           chunker_metadata: Dict[str, Any],
                           embedder_metadata: Dict[str, Any],
                           indexer_metadata: Dict[str, Any],
                           source_documents: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Generate manifest v1.1 data."""
-        
-        manifest = {
+        """Generate the nested manifest for the configured pack_version."""
+        if self.pack_version == "1.2":
+            return build_manifest_v1_2(
+                pack_id=self.pack_id,
+                created_at=self.created_at,
+                chunker=chunker_metadata,
+                embedder=embedder_metadata,
+                indexer=indexer_metadata,
+                files={
+                    "chunks": "chunks.json",
+                    "embeddings": "embeddings.npy",
+                    "citations": "citations.jsonl",
+                    "metadata": {
+                        "embeddings_csv": "embeddings.csv",
+                        "manifest": "manifest.json",
+                    },
+                },
+                source_documents=source_documents,
+            )
+
+        # Legacy v1.1 shape (deprecated; not consumable by NoesisNoema v0.4+).
+        return {
             "pack_version": "1.1",
             "pack_id": self.pack_id,
             "created_at": self.created_at,
@@ -204,5 +274,3 @@ class PackWriter:
             },
             "source_documents": source_documents
         }
-        
-        return manifest
