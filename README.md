@@ -18,8 +18,15 @@
 🎥 **Demo video**: [Watch on YouTube](https://youtu.be/XT_cp066NRE)
 
 - Safely download **GGUF** (often quantized) community models from Hugging Face.
-- Produce a **RAGpack v1.1** (`chunks.json`, `embeddings.npy`, `citations.jsonl`, `manifest.json`).
+- Produce a **RAGpack v1.2** (`chunks.json`, `embeddings.npy`, `citations.jsonl`, `manifest.json`) embedded with a llama.cpp GGUF model and importable by NoesisNoema v0.4+.
 - (Optional) Execute the same workflow on **Google Colab** using our helper notebook.
+
+> **RAGpack v1.2 (current).** Chunks are embedded with `nomic-embed-text-v1.5`
+> via `llama-cpp-python`; the manifest's `embedder.model_hash` is the **SHA-256
+> of the embedder GGUF file bytes**, which the NoesisNoema app validates on
+> import (ADR-0011 §3). v1.1 packs (sentence-transformers) are deprecated and
+> not importable by app v0.4+. See the **[1.2]** changelog and migration note
+> at the bottom of this file.
 
 ### NEW: RAGpack v1.1 Features
 - **Precise Citations**: Paragraph boundaries, character offsets, and optional span‑level source mapping for highlighting.
@@ -176,6 +183,55 @@ MIT License (see `LICENSE`). Each model retains its own license; always follow t
 - All contributors to NoesisNoema / RAGfish.
 
 ---
+
+## [1.2] - 2026-06
+RAGpack **v1.2** — interop with NoesisNoema app v0.4+ (ADR-0011 §5; app-side PRs #97/#98).
+
+### Changed
+- **Embedder switch → llama.cpp**: chunks are embedded with
+  `nomic-embed-text-v1.5` via `llama-cpp-python` (`embedder/llamacpp_embedder.py`,
+  768-dim) instead of `sentence-transformers/all-MiniLM-L6-v2` (384-dim).
+- **GGUF file-hash identity (ADR-0011 §3)**: `embedder.model_hash` is now the
+  **SHA-256 of the embedder GGUF file bytes** — the fingerprint the app
+  validates on import — not a config-dict hash. For
+  `nomic-embed-text-v1.5.Q5_K_M.gguf` this is
+  `0c7930f6c4f6f29b7da5046e3a2c0832aa3f602db3de5760a95f0582dbd3d6e6`.
+- **CLI default is v1.2**: `nn-pipeline build` defaults to
+  `--embedder llama-cpp --gguf <path>` (or `NOESIS_EMBEDDER_GGUF`).
+
+### Added
+- **`schemas/manifest_v1_2.json`** (schema delta vs v1.1):
+  - `pack_version` const `"1.2"`
+  - `embedder.required` adds `pooling` and `l2_normalized`
+  - `embedder.pooling` enum `["mean"]`; `embedder.l2_normalized` const `true`
+  - `embedder.dtype` enum `["float32"]` (was free-form in v1.1)
+  - optional `embedder.runtime` (e.g. `"llama.cpp"`)
+- Document task prefix `"search_document: "` applied to every chunk
+  (nomic-embed-text-v1.5 requirement); explicit L2 normalization of all vectors.
+- Citations normalized to the app's RAGpackReader spec
+  (`chunk_index` / `char_start` / `char_end` / `page` / `paragraph_boundaries`).
+
+### Deprecated
+- `DeterministicEmbedder` (sentence-transformers) and the
+  `--embedder sentence-transformers` CLI path: they emit **v1.1** manifests,
+  **not importable by NoesisNoema v0.4+**. They warn on use and will be removed
+  in a follow-up cleanup PR.
+
+### Migration
+Existing **v1.1 packs are not consumable by NoesisNoema v0.4+**. Regenerate with
+the v1.2 CLI:
+
+```bash
+nn-pipeline build \
+  --input_dir  ./docs \
+  --output_dir ./ragpack \
+  --gguf       ./models/nomic-embed-text-v1.5.Q5_K_M.gguf \
+  --creation_time 2026-06-09T00:00:00
+# (defaults: --embedder llama-cpp, pack_version 1.2)
+```
+
+The GGUF you build with must be byte-identical to the one the app ships, or the
+app will reject the pack on the `embedder.model_hash` check.
 
 ## [1.1] - 2025-08
 ### Added
