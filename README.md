@@ -123,6 +123,19 @@ Usage:
 
 ---
 
+### Interactive notebook (Colab or local Jupyter)
+
+For an interactive build flow with step-by-step verification, see
+`notebooks/build_ragpack_v1_2.ipynb`. Open it directly in Colab via:
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rag-fish/noesisnoema-pipeline/blob/main/notebooks/build_ragpack_v1_2.ipynb)
+
+The notebook wraps `cli.build_ragpack.run_pipeline_v12()` with cells for
+dependency install, GGUF fingerprint verification, source upload, and zip
+download. It produces the same v1.2 RAGpack as the CLI.
+
+---
+
 ## Troubleshooting
 - **403 Forbidden (gated)**: Accept the license on the model page and ensure your token allows **Gated repos: Read**.
 - **Nothing downloads / 404**: Double‑check `repo_id` and make sure the repo actually contains `.gguf` files.
