@@ -7,9 +7,12 @@ embedded and shipped.
 """
 from .pdf_extractor import convert_pdf_to_txt, extract_pdf_text
 from .text_quality import (
+    DICT_HIT_FAIL_FLOOR,
+    DICT_HIT_WARN_BELOW,
     ExtractionQualityError,
     assert_text_quality,
     assess,
+    classify_dictionary_hit_rate,
     dictionary_hit_rate,
     whitespace_ratio,
 )
@@ -22,4 +25,7 @@ __all__ = [
     "assess",
     "whitespace_ratio",
     "dictionary_hit_rate",
+    "classify_dictionary_hit_rate",
+    "DICT_HIT_FAIL_FLOOR",
+    "DICT_HIT_WARN_BELOW",
 ]
