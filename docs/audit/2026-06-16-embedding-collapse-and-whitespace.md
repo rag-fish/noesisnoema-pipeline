@@ -1,5 +1,26 @@
 # Audit — embedding collapse + whitespace loss (root cause)
 
+> **CORRECTION (2026-06-16, measured — supersedes the collapse causal claim below).**
+> Empirical follow-up (see the fix PR "fix(extraction): replace whitespace-stripping
+> pypdf …") **disproved** the hypothesis that whitespace loss *causes* the vector
+> collapse. Measured on the real source PDF + the production GGUF:
+> - The broken (pypdf-default) extraction reproduces the baseline at 768-dim:
+>   mean_norm **0.893** / off-diag cos **0.797** / eff-dim **72.1**. ✓
+> - Re-embedding the **whitespace-fixed** text gives **0.861 / 0.741 / 42.6** — it
+>   does **not** move the metrics to a "healthy" regime.
+> - A control of **10 maximally-unrelated sentences** embeds at mean_norm **0.754**,
+>   eff-dim **8.4/768** — so the high cosine / low eff-dim is **intrinsic nomic
+>   anisotropy**, not a whitespace artefact and not a pipeline bug.
+> - **Mean-centering** removes it (fixed pack off-diag **0.741 → −0.002**); this is
+>   what the NoesisNoema app's mean-centering layer already does.
+>
+> The whitespace defect is **real and worth fixing**, but its harm is **unreadable
+> citations and broken retrieval** (the broken pack returns the same glued chunk for
+> every query; the fixed pack returns exactly-relevant passages), **not** the
+> anisotropy metrics. Defect 1 ("collapse") and Defect 2 (whitespace) are
+> **independent**: fixing extraction does not — and cannot — decollapse raw nomic
+> vectors. Read the rest of this document with that correction in mind.
+
 - **Date:** 2026-06-16
 - **Scope:** two confirmed defects in a shipped RAGpack v1.2 (nomic-embed-text-v1.5.Q5_K_M, llama.cpp, mean pooling, L2).
 - **Method:** read the embedding and extraction code paths end-to-end; no fixes applied. File/line references below are to `main` at the time of audit.
