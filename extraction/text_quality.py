@@ -30,15 +30,28 @@ Measured on the Spinoza *Ethics* source PDF (see PR body):
 from __future__ import annotations
 
 import gzip
+import logging
 import re
 from importlib import resources
-from typing import FrozenSet, Optional
+from typing import FrozenSet, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 #: Default thresholds for the fail-loud gate.  Chosen to sit far from both the
 #: broken baseline (ws 0.001 / dict 0.04) and healthy prose (ws 0.14 / dict 0.86)
 #: so neither false-positives on clean text nor passes token-soup.
 DEFAULT_MIN_WHITESPACE_RATIO: float = 0.08
 DEFAULT_MIN_DICTIONARY_HIT_RATE: float = 0.6
+
+#: UAT-level quality policy for ``dictionary_hit_rate`` (a *stricter* band than the
+#: catastrophic ``DEFAULT_MIN_DICTIONARY_HIT_RATE`` floor the pipeline guard uses).
+#: A clean, well-OCR'd scan scores ~0.90+; a noisier-but-valid scan (e.g. the
+#: Spinoza *Ethics* at 0.86, with OCR artefacts like "Bfess"/"hj"/"truJy") sits in
+#: the warn band; only genuinely garbled text (token-soup ~0.11) falls below the
+#: hard floor.  Lowered from 0.85 -> 0.80 so legitimate OCR noise is tolerated
+#: while catastrophic breakage is still caught with full margin.
+DICT_HIT_FAIL_FLOOR: float = 0.80
+DICT_HIT_WARN_BELOW: float = 0.90
 
 #: The dictionary hit-rate is only meaningful with enough tokens to score; below
 #: this count we skip it (a tiny snippet is judged on whitespace alone).
@@ -86,6 +99,50 @@ def dictionary_hit_rate(text: str, wordlist: Optional[FrozenSet[str]] = None) ->
         return 0.0
     hits = sum(1 for t in tokens if t in wl)
     return hits / len(tokens)
+
+
+def classify_dictionary_hit_rate(
+    value: float,
+    *,
+    source: str = "",
+    fail_floor: float = DICT_HIT_FAIL_FLOOR,
+    warn_below: float = DICT_HIT_WARN_BELOW,
+) -> Tuple[str, str]:
+    """
+    Classify a ``dictionary_hit_rate`` against the three-band quality policy.
+
+    Returns ``(status, message)`` where ``status`` is one of:
+
+    * ``"fail"`` — ``value < fail_floor`` (default 0.80).  The text looks garbled
+      (e.g. whitespace-stripped token-soup, which scores ~0.11); callers should
+      treat this as a hard failure and raise.
+    * ``"warn"`` — ``fail_floor <= value < warn_below`` (default [0.80, 0.90)).
+      Acceptable but the source likely carries OCR noise.  **Not** a failure; a
+      ``logging.warning`` is emitted so it is never silent.
+    * ``"ok"``   — ``value >= warn_below`` (default 0.90).  Clean; no warning.
+
+    This is the UAT/reporting policy and is intentionally separate from the
+    pipeline's catastrophic :data:`DEFAULT_MIN_DICTIONARY_HIT_RATE` (0.6) floor
+    enforced by :func:`assert_text_quality`.
+    """
+    where = f" for '{source}'" if source else ""
+    if value < fail_floor:
+        return "fail", (
+            f"dictionary_hit_rate={value:.3f}{where} is below the hard floor "
+            f"{fail_floor:.2f}; the text looks garbled (e.g. whitespace-stripped "
+            f"token-soup), not merely noisy."
+        )
+    if value < warn_below:
+        message = (
+            f"dictionary_hit_rate={value:.3f}{where} is in the warn band "
+            f"[{fail_floor:.2f}, {warn_below:.2f}); extraction looks correct but "
+            f"the source likely carries OCR noise. Not failing the build."
+        )
+        logger.warning(message)
+        return "warn", message
+    return "ok", (
+        f"dictionary_hit_rate={value:.3f}{where} is clean (>= {warn_below:.2f})."
+    )
 
 
 def assess(text: str) -> dict:
