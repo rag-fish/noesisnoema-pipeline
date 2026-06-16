@@ -4,6 +4,13 @@
 # Token-based chunking
 transformers>=4.20.0
 
+# PDF text extraction (layout-aware; preserves inter-word whitespace).
+# pymupdf won a bake-off against pypdf (default + layout) and pdfplumber on the
+# real source PDF; pypdf's default mode produced whitespace-stripped token-soup
+# that broke retrieval (PR #21 audit / docs/audit). Used by the notebook
+# PDF->txt step and importable via `extraction.extract_pdf_text`.
+pymupdf>=1.24.0
+
 # llama.cpp GGUF embedding generation (RAGpack v1.2 / ADR-0011 §5)
 # nomic-embed-text-v1.5 embedder; produces the GGUF file-hash identity the
 # NoesisNoema app validates on import.

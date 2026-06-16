@@ -10,6 +10,8 @@ requires-python = ">=3.11"
 dependencies = [
     "transformers>=4.20.0",
     "llama-cpp-python>=0.3.0",
+    # Layout-aware PDF extraction (preserves inter-word whitespace; bake-off winner).
+    "pymupdf>=1.24.0",
     # DEPRECATED (v1.1 path); removed in a follow-up once v1.2 is verified.
     "sentence-transformers>=3.0.0,<4.0.0",
     "numpy>=1.21.0",
@@ -28,4 +30,8 @@ nn-pipeline = "cli.build_ragpack:app"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["chunker*", "embedder*", "ragpack*", "cli*", "writer*"]
+include = ["chunker*", "embedder*", "ragpack*", "cli*", "writer*", "extraction*"]
+
+[tool.setuptools.package-data]
+# Bundled common-English word list used by the extraction-quality gate.
+extraction = ["data/*.gz"]

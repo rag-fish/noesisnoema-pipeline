@@ -41,6 +41,7 @@ import typer
 from chunker import TokenChunker
 from chunker.chunk_record import ChunkRecord
 from embedder.deterministic_embedder import DEFAULT_MODEL_NAME, DeterministicEmbedder
+from extraction.text_quality import assert_text_quality
 from ragpack import RagpackBuilder, RagpackWriter
 from writer import PackWriter
 
@@ -221,6 +222,9 @@ def run_pipeline(
 
         raw_bytes = file_path.read_bytes()
         text = raw_bytes.decode("utf-8", errors="replace")
+        # Fail loud on whitespace-stripped "token-soup" before chunking/embedding
+        # (PR #21 / docs/audit). A garbled source must never silently ship.
+        assert_text_quality(text, source=file_path.name)
         source_hash = hashlib.sha256(raw_bytes).hexdigest()
         source_id = _compute_source_id(file_path, source_hash)
 
@@ -368,6 +372,9 @@ def run_pipeline_v12(
 
         raw_bytes = file_path.read_bytes()
         text = raw_bytes.decode("utf-8", errors="replace")
+        # Fail loud on whitespace-stripped "token-soup" before chunking/embedding
+        # (PR #21 / docs/audit). A garbled source must never silently ship.
+        assert_text_quality(text, source=file_path.name)
         source_hash = hashlib.sha256(raw_bytes).hexdigest()
         # doc_id defaults to the source filename so citations are human-readable
         # and stable when the pack moves between machines (ADR-0011 §5, P6).
